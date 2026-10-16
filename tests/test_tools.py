@@ -9,7 +9,12 @@ import urllib.error
 import pytest
 
 from its_fun_2_map import its_fun_tools
-from its_fun_2_map.its_fun_tools import cleanup_temp_dir, get_ncbi_lineage, load_name_ids
+from its_fun_2_map.its_fun_tools import (
+    cleanup_temp_dir,
+    get_ncbi_lineage,
+    load_name_ids,
+    normalise_taxon_name,
+)
 
 TAXONOMY_RECORD = [{
     "TaxId": "5507",
@@ -118,3 +123,14 @@ def test_lineage_gives_up_after_five_attempts(fake_entrez, logger):
     with pytest.raises(ValueError, match="No taxonomy record found"):
         get_ncbi_lineage("999999999", "test@example.org", logger)
     assert calls == {"efetch": 5, "sleep": 4}
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("Cladonia uncialis", "cladonia uncialis"),
+    ("Cladonia_uncialis", "cladonia uncialis"),
+    ("  Cladonia__Uncialis ", "cladonia uncialis"),
+    ("Cladonia_sp", "cladonia sp"),
+    ("Cladonia", "cladonia"),
+])
+def test_normalise_taxon_name(name, expected):
+    assert normalise_taxon_name(name) == expected

@@ -14,6 +14,7 @@ import logging
 from Bio import SeqIO
 from seqpy_tools import setup_logging
 from . import __version__
+from .its_fun_tools import normalise_taxon_name
 
 def find_csv_in_dir(project_dir, logger, custom):
     """Find CSV files in a directory (recursive)."""
@@ -465,10 +466,16 @@ def rename_fastas(df, name_column, out_dir, logger, delim="_"):
         SeqIO.write(records, manual_verification_name, "fasta")
 
 def n_taxa(y):
+    """Count distinct taxa in a ';'-separated UNITEd_taxa string.
+
+    Names are normalised first, so spelling variants of one taxon
+    ("Cladonia uncialis", "Cladonia_uncialis") count once. Every distinct
+    label still counts, including "sp." and genus-only labels.
+    """
     if pd.isna(y) or y == "":
         return 0
-    v = y.split(";")
-    return len(set(v))
+    names = {normalise_taxon_name(name) for name in y.split(";") if name.strip()}
+    return len(names)
 
 
 def main(argv=None):

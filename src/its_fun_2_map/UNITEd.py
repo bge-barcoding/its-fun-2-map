@@ -43,7 +43,7 @@ from collections import defaultdict
 from Bio import Entrez
 from datetime import datetime
 from seqpy_tools import setup_logging
-from .its_fun_tools import get_ncbi_lineage
+from .its_fun_tools import get_ncbi_lineage, normalise_taxon_name
 from . import __version__
 
 # Increase time between and number of tries used by entrez (from go_fetch.py)
@@ -313,10 +313,9 @@ def search_rank_for_taxon(unite_index, rank, taxon_name):
     # Look for partial matches (species name without underscore/space differences)
     if rank == 'species':
         # Handle variations in species names (spaces vs underscores)
-        taxon_normalised = re.sub(r'[_\s]+', ' ', taxon_name.lower().strip())
+        taxon_normalised = normalise_taxon_name(taxon_name)
         for unite_taxon, sequences in unite_index[rank].items():
-            unite_normalised = re.sub(r'[_\s]+', ' ', unite_taxon.lower().strip())
-            if taxon_normalised == unite_normalised:
+            if normalise_taxon_name(unite_taxon) == taxon_normalised:
                 return sequences
     
     return None
@@ -493,6 +492,9 @@ def find_sequences_with_diversity(ncbi_lineage, unite_index, target_rank, target
     all_collected_sequences = []
     collection_info = []
     target_species_sequences = []
+    # Headers already selected, so no sequence is chosen twice (e.g. as a
+    # target-species match, again as a child taxon, and again at a higher rank)
+    selected_headers = set()
     
     # First, try to find target species matches (up to 25% of target)
     target_species_name = ncbi_lineage.get('species')
@@ -515,10 +517,13 @@ def find_sequences_with_diversity(ncbi_lineage, unite_index, target_rank, target
             # Tag these sequences
             for seq in target_species_sequences:
                 seq_copy = seq.copy()
-                seq_copy['diversity_source_taxon'] = target_species_name
+                # Label with the UNITE name (e.g. 'Cladonia_uncialis'), as for the
+                # child taxa below, not the NCBI spelling ('Cladonia uncialis')
+                seq_copy['diversity_source_taxon'] = seq['taxon_name']
                 seq_copy['diversity_source_rank'] = 'species'
                 seq_copy['target_species_match'] = True
                 all_collected_sequences.append(seq_copy)
+                selected_headers.add(seq['header'])
             
             logger.info(f"Found target species match! Collected {len(target_species_sequences)} sequences from '{target_species_name}'")
         else:
@@ -556,10 +561,24 @@ def find_sequences_with_diversity(ncbi_lineage, unite_index, target_rank, target
         # Find child taxa under current rank
         child_taxa = find_child_taxa(unite_index, current_rank, current_taxon_name, logger)
         
-        # Remove target species from child taxa if it exists (already processed)
-        if target_species_name and target_species_name in child_taxa:
-            logger.info(f"Removing target species '{target_species_name}' from child taxa (already processed)")
-            del child_taxa[target_species_name]
+        # Remove target species from child taxa if it exists (already processed).
+        # Compare normalised names: NCBI uses spaces, UNITE uses underscores.
+        if target_species_name:
+            target_normalised = normalise_taxon_name(target_species_name)
+            for child_name in list(child_taxa):
+                if normalise_taxon_name(child_name) == target_normalised:
+                    logger.info(f"Removing target species '{child_name}' from child taxa (already processed)")
+                    del child_taxa[child_name]
+
+        # Drop sequences already selected at an earlier step or rank. At a
+        # higher rank the child taxon containing the target lineage (e.g. genus
+        # 'Cladonia' under family 'Cladoniaceae') holds sequences already taken.
+        for child_name in list(child_taxa):
+            remaining = [seq for seq in child_taxa[child_name] if seq['header'] not in selected_headers]
+            if remaining:
+                child_taxa[child_name] = remaining
+            else:
+                del child_taxa[child_name]
         
         if not child_taxa:
             logger.warning(f"No child taxa found under {current_rank}: {current_taxon_name}")
@@ -573,6 +592,7 @@ def find_sequences_with_diversity(ncbi_lineage, unite_index, target_rank, target
         if rank_sequences:
             # Add to cumulative collection
             all_collected_sequences.extend(rank_sequences)
+            selected_headers.update(seq['header'] for seq in rank_sequences)
             collection_info.append({
                 'rank': current_rank,
                 'taxon_name': current_taxon_name,
@@ -726,6 +746,14 @@ def find_sequences_with_traverse(ncbi_lineage, unite_index, start_rank, target_c
             else:
                 rank_sequences = sequences
             
+            # Skip sequences already taken at a more specific rank: a genus-level
+            # search also returns the species-level sequences collected before it
+            collected_headers = {seq['header'] for seq in collected_sequences}
+            rank_sequences = [seq for seq in rank_sequences if seq['header'] not in collected_headers]
+            if not rank_sequences:
+                logger.info(f"No new sequences at {rank} level: {taxon_name} (all already collected)")
+                continue
+
             # Sort by length (longest first)
             rank_sequences = sorted(rank_sequences, key=lambda x: x['length'], reverse=True)
             

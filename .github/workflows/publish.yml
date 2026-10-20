@@ -1,0 +1,101 @@
+name: Publish to PyPI
+
+# Publishing a GitHub Release (tag vX.Y.Z) tests, builds and uploads the package
+# to PyPI via Trusted Publishing.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Same test suite as test.yml (Python 3.12-3.14 with R), against the released
+  # commit. Requires test.yml to declare `workflow_call:`.
+  test:
+    uses: ./.github/workflows/test.yml
+
+  # Build the sdist and wheel, check them, and smoke-test the installed wheel.
+  build:
+    name: Build and check distributions
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"   # requires-python >= 3.12
+
+      - name: Check release tag matches package version
+        if: github.event_name == 'release'
+        run: |
+          # The version is dynamic: pyproject.toml reads __version__ from the package
+          pkg_version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/its_fun_2_map/__init__.py)
+          tag_version="${GITHUB_REF_NAME#v}"
+          echo "package: $pkg_version  tag: $tag_version"
+          if [ -z "$pkg_version" ] || [ "$pkg_version" != "$tag_version" ]; then
+            echo "::error::Release tag $GITHUB_REF_NAME does not match __version__ $pkg_version in src/its_fun_2_map/__init__.py"
+            exit 1
+          fi
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+          twine check --strict dist/*
+
+      # rpy2 (a runtime dependency) must be built against R >= 4.5
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+          use-public-rspm: true
+
+      - name: Smoke-test the wheel in a clean environment
+        run: |
+          python -m venv /tmp/wheeltest
+          /tmp/wheeltest/bin/pip install dist/*.whl
+          /tmp/wheeltest/bin/pip check
+          pkg_version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/its_fun_2_map/__init__.py)
+          # Every pipeline command must be installed and report the package version
+          for cmd in itsfun-qc itsfun-lineage itsfun-refs itsfun-map itsfun-assemble \
+                     itsfun-blast1 itsfun-blast1-parse itsfun-blast2 itsfun-blast-parse \
+                     itsfun-extract itsfun-summary; do
+            out=$(/tmp/wheeltest/bin/$cmd --version) || { echo "::error::$cmd failed to run"; exit 1; }
+            echo "$out"
+            [ "$out" = "$cmd $pkg_version" ] || { echo "::error::$cmd reported '$out', expected '$cmd $pkg_version'"; exit 1; }
+          done
+          # The R scripts sourced at runtime must be inside the installed package
+          /tmp/wheeltest/bin/python - <<'EOF'
+          from importlib.resources import files
+          for script in ("parse_fastp_json.R", "its_decision_making.R"):
+              assert (files("its_fun_2_map") / script).is_file(), f"Missing from wheel: {script}"
+          print("Both R scripts present")
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  # Upload to PyPI.
+  publish:
+    name: Upload to PyPI
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/its-fun-2-map/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

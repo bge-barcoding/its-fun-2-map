@@ -37,16 +37,14 @@ import os
 import sys
 import csv
 import argparse
-import logging
 import re
-import time
-import urllib
-import random
 import traceback
 from collections import defaultdict
 from Bio import Entrez
 from datetime import datetime
 from seqpy_tools import setup_logging
+from .its_fun_tools import get_ncbi_lineage, normalise_taxon_name
+from . import __version__
 
 # Increase time between and number of tries used by entrez (from go_fetch.py)
 Entrez.sleep_between_tries = 20 
@@ -89,6 +87,7 @@ Diversity functionality:
     - Prioritises even distribution over total sequence length
         """
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     
     parser.add_argument("--tracking_sheet", required=True, 
                         help="CSV file with 'ID' and 'taxid' columns. Specifically named columns can be set using parameters --id_header and --taxid_header")
@@ -126,7 +125,6 @@ Diversity functionality:
                         "'TAXID', 'tax_id', 'Tax_ID', 'TAX_ID', 'taxonomy_id', 'ncbi_taxid', or 'NCBI_TaxID'")
     parser.add_argument("--summary_csv", 
                         help="Generate detailed CSV summary with specified filename (will be placed in output directory)")
-    parser.add_argument("--version", action="version", version="1.3.0")
     parser.add_argument("--log_file", help="Log file path; if not provided, a timestamped `UNITEd_log` file will be created")
 
     return parser
@@ -284,67 +282,6 @@ def build_unite_taxonomy_index(fasta_file, logger, keep_all_sequences=False):
         raise
 
 
-
-def get_ncbi_lineage(taxid, email, logger, api_key=None):
-    """
-    Get NCBI taxonomic lineage for a given taxid with retry logic.
-    """
-    Entrez.email = email
-    if api_key and api_key != "None":
-        Entrez.api_key = api_key
-    
-    logger.info(f"Getting NCBI lineage for taxid: {taxid}")
-    
-    max_retries = 5
-    base_delay = 10
-    
-    for attempt in range(max_retries):
-        try:
-            # Get taxonomy information
-            handle = Entrez.efetch(db="Taxonomy", id=taxid, retmode="xml")
-            record = Entrez.read(handle)
-            
-            if not record:
-                raise ValueError(f"No taxonomy record found for taxid {taxid}")
-            
-            # Extract lineage information
-            tax_record = record[0]
-            lineage_list = tax_record.get("LineageEx", [])
-            
-            # Add the current taxon to the lineage
-            lineage_list.append({
-                'TaxId': tax_record['TaxId'],
-                'ScientificName': tax_record['ScientificName'],
-                'Rank': tax_record['Rank']
-            })
-            
-            # Convert to our format
-            lineage = {}
-            for item in lineage_list:
-                rank = item['Rank']
-                name = item['ScientificName']
-                
-                # Map NCBI ranks
-                if rank in ['species', 'genus', 'family', 'order', 'class', 'phylum', 'kingdom']:
-                    lineage[rank] = name
-            
-            logger.info(f"Retrieved lineage for {taxid}: {', '.join([f'{k}:{v}' for k,v in lineage.items()])}")
-            return lineage
-            
-        except (ValueError, urllib.error.HTTPError, urllib.error.URLError) as e:
-            delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
-            logger.warning(f"Attempt {attempt+1}/{max_retries}: Error getting lineage for {taxid}: {str(e)}")
-            
-            if attempt < max_retries - 1:
-                logger.info(f"Retrying in {delay:.2f} seconds...")
-                time.sleep(delay)
-            else:
-                logger.error(f"Failed to get lineage for {taxid} after {max_retries} attempts.")
-                raise
-    
-    raise Exception(f"Failed to get lineage for {taxid}")
-
-
 def get_most_specific_taxon(ncbi_lineage):
     """
     Get the most specific taxon name from NCBI lineage.
@@ -376,10 +313,9 @@ def search_rank_for_taxon(unite_index, rank, taxon_name):
     # Look for partial matches (species name without underscore/space differences)
     if rank == 'species':
         # Handle variations in species names (spaces vs underscores)
-        taxon_normalised = re.sub(r'[_\s]+', ' ', taxon_name.lower().strip())
+        taxon_normalised = normalise_taxon_name(taxon_name)
         for unite_taxon, sequences in unite_index[rank].items():
-            unite_normalised = re.sub(r'[_\s]+', ' ', unite_taxon.lower().strip())
-            if taxon_normalised == unite_normalised:
+            if normalise_taxon_name(unite_taxon) == taxon_normalised:
                 return sequences
     
     return None
@@ -556,6 +492,9 @@ def find_sequences_with_diversity(ncbi_lineage, unite_index, target_rank, target
     all_collected_sequences = []
     collection_info = []
     target_species_sequences = []
+    # Headers already selected, so no sequence is chosen twice (e.g. as a
+    # target-species match, again as a child taxon, and again at a higher rank)
+    selected_headers = set()
     
     # First, try to find target species matches (up to 25% of target)
     target_species_name = ncbi_lineage.get('species')
@@ -578,10 +517,13 @@ def find_sequences_with_diversity(ncbi_lineage, unite_index, target_rank, target
             # Tag these sequences
             for seq in target_species_sequences:
                 seq_copy = seq.copy()
-                seq_copy['diversity_source_taxon'] = target_species_name
+                # Label with the UNITE name (e.g. 'Cladonia_uncialis'), as for the
+                # child taxa below, not the NCBI spelling ('Cladonia uncialis')
+                seq_copy['diversity_source_taxon'] = seq['taxon_name']
                 seq_copy['diversity_source_rank'] = 'species'
                 seq_copy['target_species_match'] = True
                 all_collected_sequences.append(seq_copy)
+                selected_headers.add(seq['header'])
             
             logger.info(f"Found target species match! Collected {len(target_species_sequences)} sequences from '{target_species_name}'")
         else:
@@ -619,10 +561,24 @@ def find_sequences_with_diversity(ncbi_lineage, unite_index, target_rank, target
         # Find child taxa under current rank
         child_taxa = find_child_taxa(unite_index, current_rank, current_taxon_name, logger)
         
-        # Remove target species from child taxa if it exists (already processed)
-        if target_species_name and target_species_name in child_taxa:
-            logger.info(f"Removing target species '{target_species_name}' from child taxa (already processed)")
-            del child_taxa[target_species_name]
+        # Remove target species from child taxa if it exists (already processed).
+        # Compare normalised names: NCBI uses spaces, UNITE uses underscores.
+        if target_species_name:
+            target_normalised = normalise_taxon_name(target_species_name)
+            for child_name in list(child_taxa):
+                if normalise_taxon_name(child_name) == target_normalised:
+                    logger.info(f"Removing target species '{child_name}' from child taxa (already processed)")
+                    del child_taxa[child_name]
+
+        # Drop sequences already selected at an earlier step or rank. At a
+        # higher rank the child taxon containing the target lineage (e.g. genus
+        # 'Cladonia' under family 'Cladoniaceae') holds sequences already taken.
+        for child_name in list(child_taxa):
+            remaining = [seq for seq in child_taxa[child_name] if seq['header'] not in selected_headers]
+            if remaining:
+                child_taxa[child_name] = remaining
+            else:
+                del child_taxa[child_name]
         
         if not child_taxa:
             logger.warning(f"No child taxa found under {current_rank}: {current_taxon_name}")
@@ -636,6 +592,7 @@ def find_sequences_with_diversity(ncbi_lineage, unite_index, target_rank, target
         if rank_sequences:
             # Add to cumulative collection
             all_collected_sequences.extend(rank_sequences)
+            selected_headers.update(seq['header'] for seq in rank_sequences)
             collection_info.append({
                 'rank': current_rank,
                 'taxon_name': current_taxon_name,
@@ -789,6 +746,14 @@ def find_sequences_with_traverse(ncbi_lineage, unite_index, start_rank, target_c
             else:
                 rank_sequences = sequences
             
+            # Skip sequences already taken at a more specific rank: a genus-level
+            # search also returns the species-level sequences collected before it
+            collected_headers = {seq['header'] for seq in collected_sequences}
+            rank_sequences = [seq for seq in rank_sequences if seq['header'] not in collected_headers]
+            if not rank_sequences:
+                logger.info(f"No new sequences at {rank} level: {taxon_name} (all already collected)")
+                continue
+
             # Sort by length (longest first)
             rank_sequences = sorted(rank_sequences, key=lambda x: x['length'], reverse=True)
             
@@ -1146,12 +1111,12 @@ def write_summary_csv(summary_data, output_path, logger):
         raise
 
 
-def main():
+def main(argv=None):
     """Main function to orchestrate the UNITE sequence extraction process."""
 
     # Set up argument parser
     parser = setup_argument_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # Set up logger
     if args.log_file is None:
@@ -1351,6 +1316,8 @@ def main():
     logger.info(f"Success rate: {(successful_matches/total_samples)*100:.1f}%")
     logger.info("="*50)
 
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import sys
 import os
 import glob
 import argparse
@@ -12,6 +13,8 @@ from rpy2.robjects import pandas2ri, default_converter
 import logging
 from Bio import SeqIO
 from seqpy_tools import setup_logging
+from . import __version__
+from .its_fun_tools import normalise_taxon_name
 
 def find_csv_in_dir(project_dir, logger, custom):
     """Find CSV files in a directory (recursive)."""
@@ -463,16 +466,23 @@ def rename_fastas(df, name_column, out_dir, logger, delim="_"):
         SeqIO.write(records, manual_verification_name, "fasta")
 
 def n_taxa(y):
+    """Count distinct taxa in a ';'-separated UNITEd_taxa string.
+
+    Names are normalised first, so spelling variants of one taxon
+    ("Cladonia uncialis", "Cladonia_uncialis") count once. Every distinct
+    label still counts, including "sp." and genus-only labels.
+    """
     if pd.isna(y) or y == "":
         return 0
-    v = y.split(";")
-    return len(set(v))
+    names = {normalise_taxon_name(name) for name in y.split(";") if name.strip()}
+    return len(names)
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Merge pipeline CSV outputs into a single summary table"
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument(
         "project_dir",
         help="Project directory containing pipeline output CSV files",
@@ -506,7 +516,7 @@ def main():
         "See BOlD for futher information: https://v3.boldsystems.org/index.php/resources/handbook?chapter=3_submissions.html")
 
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     out_dir = Path(args.project_dir) / "final_results_dir"
     os.makedirs(out_dir, exist_ok=True)
@@ -582,6 +592,8 @@ def main():
     summary_df.to_csv(outfile, index=False)
     logger.info("Merged summary written to %s", outfile)
 
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

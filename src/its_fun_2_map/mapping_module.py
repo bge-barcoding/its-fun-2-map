@@ -10,8 +10,9 @@ import re
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from its_fun_tools import load_name_ids, cleanup_temp_dir, log_and_print
+from .its_fun_tools import load_name_ids, cleanup_temp_dir, log_and_print
 from seqpy_tools import repair_reads, setup_logging
+from . import __version__
 
 #### Date: 2025-08-04
 #### Author: Maria Kamouyiaros & Dan Parsons (@ NHMUK)
@@ -330,7 +331,7 @@ def generate_mapping_summary(sample_ids, output_dir, aligner, logger):
     logger.info(f"Mapping summary saved to {summary_file}")
 
 
-def main(args):
+def run(args):
     
     # Setup
     os.makedirs(args.output_dir, exist_ok=True)
@@ -425,7 +426,7 @@ def main(args):
         max_workers = args.threads or os.cpu_count()
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
-                executor.submit(run_bwa_mem_and_samtools, sid, infile, args.output_dir, temp_dir, reffile, 8, logger)
+                executor.submit(run_bwa_mem_and_samtools, sid, infile, args.output_dir, temp_dir, reffile, args.bwa_threads, logger)
                 for sid, infile, reffile in jobs
             ]
 
@@ -462,7 +463,7 @@ def main(args):
                 # Process merged file (single-end)
                 for merged_file in merged_files:
                     future = executor.submit(
-                        run_bwa_aln_and_samtools, sid, merged_file, args.output_dir, temp_dir, reffile, 8, logger, None
+                        run_bwa_aln_and_samtools, sid, merged_file, args.output_dir, temp_dir, reffile, args.bwa_threads, logger, None
                     )
                     futures[future] = f"{sid}_merged"
                 
@@ -470,7 +471,7 @@ def main(args):
                 if unmerged_1_files and unmerged_2_files:
                     if len(unmerged_1_files) == 1 and len(unmerged_2_files) == 1:
                         future = executor.submit(
-                            run_bwa_aln_and_samtools, sid, unmerged_1_files[0], args.output_dir, temp_dir, reffile, 8, logger, unmerged_2_files[0]
+                            run_bwa_aln_and_samtools, sid, unmerged_1_files[0], args.output_dir, temp_dir, reffile, args.bwa_threads, logger, unmerged_2_files[0]
                         )
                         futures[future] = f"{sid}_unmerged"
                     else:
@@ -552,11 +553,12 @@ def main(args):
     logger.info("Compressing and cleaning up data directories")
     logger.info("All samples processed!")
 
-if __name__ == "__main__":
+def build_parser():
     parser = argparse.ArgumentParser(
         description="Map merged reads to per-sample references",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--input_dir", required=True, help="Directory with FASTQ files")
     parser.add_argument("--ref_dir", required=True, help="Directory with per-sample reference FASTAs")
     parser.add_argument("--output_dir", required=True, help="Directory for outputs")
@@ -565,7 +567,18 @@ if __name__ == "__main__":
     parser.add_argument("--aligner", required=True, choices=["bwa-mem", "bwa-aln"], help="BWA algorithm to use: bwa-mem or bwa-aln")
     parser.add_argument("--sheet", type=int, default=0, help="Sheet index if XLSX file is used")
     parser.add_argument("--threads", type=int, default=4, help="Number of parallel jobs (not threads per job)")
+    parser.add_argument("--bwa_threads", type=int, default=8, help="Threads per BWA job")
     parser.add_argument("--log_file", help="Log file path; if not provided, a timestamped `mapping_log` file will be created")
+    return parser
 
-    args = parser.parse_args()
-    main(args)
+
+def main(argv=None):
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    run(args)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

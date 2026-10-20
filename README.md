@@ -1,85 +1,122 @@
 # its-fun-2-map
 
-A pipeline for processing fungal genome skims from museum specimens. Includes quality control, mapping, assembly, BLAST taxonomic assignment, and validation.
+A pipeline for processing fungal genome skims from museum specimens. Includes quality control, reference mapping (as a read-baiting step), assembly, BLAST taxonomic assignment, primer-based ITS region extraction, and validation.
 
 ## Contents
-1. [Dependencies](#dependencies)
-2. [Pipeline Overview](#pipeline-overview)
-3. [Workflow](#workflow)
-4. [Output Directory Structure](#output-directory-structure)
-5. [Configuration](#configuration)
+1. [Installation and quick start](#installation-and-quick-start)
+2. [Workflow](#workflow)
+3. [Configuration](#configuration)
+4. [Pipeline Overview](#pipeline-overview)
+5. [Output Directory Structure](#output-directory-structure)
+6. [Dependencies](#dependencies)
 7. [Authors](#authors)
 
-## Dependencies
-### Languages
-- r-base 4.5.2 - keep on 4.5.x; rpy2's conda build encodes the R series, so bumping R alone leaves rpy2 with no matching build
-- python 3.14 - minimum supported is 3.12, which `seqpy-tools` requires
+## Installation and quick start
+Everything the pipeline needs (tools, R, Python and their packages) are installed by the conda environment in `its-fun-2-map.yaml`. The only things you need to fetch yourself are the reference databases.
 
-### Conda packages
-| Package  | Version              |
-|----------|----------------------|
-| fastp    | 1.0.1                |
-| seqkit   | 2.12.0               |
-| bwa      | 0.7.19               |
-| samtools | 1.24                 |
-| bbmap    | 40.02                |
-| openjdk  | 21                   |
-| spades   | 4.2.0                |
-| blast    | 2.17.0               |
+**1. Install [conda](https://www.anaconda.com/docs/getting-started/miniconda/install#quickstart-install-instructions)** if you don't already have it.
 
-BBMap supplies `repair.sh`, which `mapping_module.py` uses to resynchronise mapped read
-pairs in Step 3; `openjdk` is its Java runtime. `htslib` is no longer listed - it is
-pulled in automatically as a library dependency of `samtools`.
-
-### Python packages (not built-in)
-| Package   | Version              |
-|-----------|----------------------|
-| pandas    | 2.3.3                |
-| numpy     | 2.4.1                |
-| biopython | 1.86                 |
-| rpy2      | 3.6.4                |
-| scipy     | 1.18.0               |
-| openpyxl  | 3.1.5                |
-| pgzip     | 0.4.0                |
-
-### R packages
-- [jsonlite](https://cran.r-project.org/web/packages/jsonlite/index.html) 2.0.0 - used by `parse_fastp_json.R`; `its_decision_making.R` needs only base R
-
-### Custom tool packages
- - its_fun_tools - a local module, not an installed package. Run the scripts from the repository directory, or put it on `PYTHONPATH`.
- - [seqpy-tools](https://github.com/museomics/seqpy_tools) 0.1.0 ([available via pip](https://pypi.org/project/seqpy-tools/)) - imported by every module in the pipeline
-
-### Databases
-- BLASTn databases:
-  - [UNITE Full "UNITE+INSD" database](https://unite.ut.ee/repository.php#panel6a) - for reference sequence retrieval
-  - [UNITE General Release (sh_general_release_dynamic)](https://unite.ut.ee/repository.php#panel5a) - for BLAST Round 1
-  - [UCHIME ITS1 reference dataset](https://unite.ut.ee/repository.php#panel7a) - for BLAST Round 2b
-  - [UCHIME ITS2 reference dataset](https://unite.ut.ee/repository.php#panel7a) - for BLAST Round 2a
-
-## Installing dependencies
-All dependencies are included in `its-fun-2-map.yaml`. A conda environment can be created from this YAML using the following command after [conda](https://www.anaconda.com/docs/getting-started/miniconda/install#quickstart-install-instructions) is installed:
-```
+**2. Clone the repository and create the environment:**
+```bash
+git clone https://github.com/museomics/its-fun-2-map.git
+cd its-fun-2-map
 conda env create -f its-fun-2-map.yaml
 conda activate its-fun-2-map
 ```
 
-## Pipeline Overview
-The pipeline processes raw paired-end sequencing reads from fungal museum specimens through quality control, reference-guided read enrichment, assembly, and multi-round BLAST validation to extract and validate ITS barcode sequences.
+**3. Install the pipeline package** into the activated environment:
+```bash
+pip install -e .
+```
+(or `pip install its-fun-2-map` to install from PyPI). The conda environment is still required either way, as the pipeline shells out to fastp, seqkit, bwa, samtools, BBMap, SPAdes, BLAST+ and R, none of which are pip-installable.
 
-<figure>
-    <img src="https://github.com/museomics/its-fun-2-map/blob/main/img/ITS-FUN-FLOWCHART.jpg" width="2500" height="3500"
-         alt="Pipeline-flowchart">
-    <figcaption>Flowchart of the ITS-FUN-2-MAP pipeline</figcaption>
-</figure>
+**4. Download the reference databases** from UNITE:
+- [UNITE Full "UNITE+INSD"](https://unite.ut.ee/repository.php#panel6a) - reference sequence retrieval (Step 2)
+- [UNITE General Release (sh_general_release_dynamic)](https://unite.ut.ee/repository.php#panel5a) - BLAST Round 1 (Step 5)
+- [UNITE UCHIME ITS2 reference dataset](https://unite.ut.ee/repository.php#panel7a) - BLAST Round 2a (Step 6)
+- [UNITE UCHIME ITS1 reference dataset](https://unite.ut.ee/repository.php#panel7a) - BLAST Round 2b (Step 7)
+
+**5. Check the install:**
+```bash
+itsfun-qc --help
+```
+
+**6. Prepare a tracking sheet** (CSV or XLSX) with sample IDs and taxids - see [Tracking Sheet Format](#tracking-sheet-format).
+
+**7. Run the pipeline.** All steps can be run sequentially with `run_pipeline.sh`: set your paths and parameters in its configurable parameters block, then run it. See the [tutorial](https://github.com/museomics/its-fun-2-map/blob/main/tutorial.md) for a worked example.
+
+Full version details for every dependency are in [Dependencies](#dependencies).
+
+## Workflow
+![ITS-FUN-2-MAP pipeline flowchart](img/its-fun-2-map_flowchart.svg)
+
+## Configuration
+### Default Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `MIN_LENGTH` | 100 bp | Minimum sequence length for BLAST filtering |
+| `MIN_PIDENT` | 85% | Minimum percent identity for BLAST hits |
+| `EVALUE_CUTOFF` | 1e-5 | BLAST e-value threshold |
+| `NUMBER_REFS` | 40 | Number of reference sequences to retrieve |
+| `TAX_RANK` | genus | Taxonomic rank for reference retrieval |
+
+### Tracking Sheet Format
+The pipeline accepts CSV or XLSX tracking sheets with the following columns:
+
+**Required columns:**
+- Sample ID column (configurable via `--column_name` or `--id_header`)
+- Taxid column (for UNITEd step, configurable via `--taxid_header`)
+
+**Optional but recommended columns:**
+- `forward` / `fwd` - path to forward reads
+- `reverse` / `rev` - path to reverse reads
+
+If forward/reverse columns are present, file paths are read directly from the tracking sheet. Otherwise, files are searched for in the input directory using sample ID-based string matching.
+
+**For taxonomy validation:**
+- `Kingdom`, `Phylum`, `Class`, `Order`, `Family`, `Genus`, `Species` - taxonomic hierarchy columns
+
+If your spreadsheet doesn't contain taxonomic hierarchy columns, you can use the helper command `itsfun-lineage`. This will take any spreadsheet (both CSV and XLSX allowed) and queries all taxonomic IDs within in using NCBI Entrez. It then appends the taxonomic hierarchy columns to the spreadsheet. Outputs a log file and a CSV to your working directory for downstream use. 
+
+If using the pipeline shell script, this can be opted in by changing "need_lineage" to "YES" in [Advanced Usage: Configurable paramaters](https://github.com/museomics/its-fun-2-map/blob/main/tutorial.md). 
 
 ```
-Raw Reads → QC → Reference Retrieval → Read Mapping → Assembly → BLAST Validation → ITS Extraction
+## Configurable parameters
+# itsfun-refs parameters
+need_lineage="NO"     #change to "YES" to use itsfun-lineage
+
+```
+
+## Pipeline Overview
+```
+Raw Reads → QC → Reference Retrieval → Read Mapping → Assembly → BLAST Taxonomy Validation → ITS Extraction
 ```
 **All pipeline steps can be run sequentially using the `run_pipeline.sh` script.**
+
+Installing the package puts one command per pipeline step on your `PATH`, so steps can also be run individually from any directory:
+
+| Command | Step | Module |
+|---------|------|--------|
+| `itsfun-qc` | 1 - Quality control | `fastp_module` |
+| `itsfun-refs` | 2 - Pseudo-reference retrieval | `UNITEd` |
+| `itsfun-map` | 3 - Read mapping & baiting | `mapping_module` |
+| `itsfun-assemble` | 4 - Contig assembly | `assembly_module` |
+| `itsfun-blast1` | 5 - BLASTn round 1 | `blast_round1` |
+| `itsfun-blast1-parse` | 5.5 - Round 1 parsing & validation | `blast_round1_parser` |
+| `itsfun-blast2` | 6, 7 - BLASTn round 2 (ITS2/ITS1) | `blast_round2` |
+| `itsfun-blast-parse` | 6.5, 7.5 - Round 2 parsing & validation | `blast_output_parser` |
+| `itsfun-extract` | 8 - ITS primer binding & extraction | `its_primer_binding` |
+| `itsfun-summary` | 9 - Summary metrics aggregation | `its_a_summary_compiler` |
+| `itsfun-lineage` | helper - add NCBI lineages to a tracking sheet | `pull_ncbi_lineage` |
+
+Every command takes `--help`. Each is also runnable as a module, e.g.
+`python -m its_fun_2_map.fastp_module --help`.
+
 ---
 
 
-## Step 1: Quality Control (`fastp_module.py`)
+## Step 1: Quality Control (`itsfun-qc`)
 
 Quality control processing of raw paired-end reads using fastp with a two-stage approach.
 
@@ -115,7 +152,7 @@ Quality control processing of raw paired-end reads using fastp with a two-stage 
 
 ---
 
-## Step 2: Pseudo-Reference Sequence Retrieval (`UNITEd.py`)
+## Step 2: Pseudo-Reference Sequence Retrieval (`itsfun-refs`)
 Retrieves taxonomically relevant reference sequences from the UNITE database using NCBI taxonomy matching.
 
 **Process:**
@@ -146,7 +183,7 @@ Retrieves taxonomically relevant reference sequences from the UNITE database usi
 
 ---
 
-## Step 3: Read Mapping & Baiting (`mapping_module.py`)
+## Step 3: Read Mapping & Baiting (`itsfun-map`)
 Maps quality-filtered reads to retrieved reference sequences using BWA to enrich for target ITS regions. Supports both modern DNA (BWA-MEM) and ancient/historical DNA (BWA-ALN) alignment strategies.
 
 **Alignment Algorithms:**
@@ -163,6 +200,15 @@ Maps quality-filtered reads to retrieved reference sequences using BWA to enrich
 5. Repairs paired-end read files to ensure synchronisation
 6. Generates mapping statistics
 
+**Parameters:**
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--aligner` | - | BWA algorithm: `bwa-mem` or `bwa-aln` (required) |
+| `--threads` | 4 | Number of **samples** mapped in parallel (i.e. concurrent BWA jobs) |
+| `--bwa_threads` | 8 | Worker threads used **within** each BWA job (BWA's `-t`) |
+
+> **Note on threading.** As in Step 1, `--threads` and `--bwa_threads` multiply. Total worker threads is approximately `--threads x --bwa_threads`, so the defaults use around 32 threads, not 4. On a scheduler, set `--threads $SLURM_CPUS_PER_TASK --bwa_threads 1` to make the CPU request and actual usage match.
+
 **Input:**
   - Quality-filtered FASTQ files from Step 1 (`*_merged.fq`, `*_unmerged_1.fq`, `*_unmerged_2.fq`)
   - Per-sample reference FASTA files from Step 2 (`*_seed.fasta`)
@@ -176,7 +222,7 @@ Maps quality-filtered reads to retrieved reference sequences using BWA to enrich
 
 ---
 
-## Step 4: Contig Assembly (`assembly_module.py`)
+## Step 4: Contig Assembly (`itsfun-assemble`)
 Assembles mapped reads into contigs using SPAdes with a multi-stage fallback strategy to maximise assembly success.
 
 **Assembly Strategy:**
@@ -209,7 +255,7 @@ Assembles mapped reads into contigs using SPAdes with a multi-stage fallback str
  
 ---
 
-## Step 5: BLASTn - Round 1 (General Database) (`blast_round1.py`)
+## Step 5: BLASTn - Round 1 (General Database) (`itsfun-blast1`)
 Searches assembled scaffolds against the general UNITE database for initial taxonomic identification.
 
 **Process:**
@@ -231,7 +277,7 @@ Searches assembled scaffolds against the general UNITE database for initial taxo
 
 ---
 
-## Step 5.5: BLASTn Round 1 Parsing & Taxonomic Validation (`blast_round1_parser.py`)
+## Step 5.5: BLASTn Round 1 Parsing & Taxonomic Validation (`itsfun-blast1-parse`)
 Parses BLAST Round 1 output and validates taxonomic assignments against expected taxonomy with cascading taxonomic rank matching.
 
 **Taxonomic Validation Strategy:**
@@ -273,7 +319,7 @@ The parser attempts to match BLAST hits against expected taxonomy using a cascad
 
 ---
 
-## Step 6: BLASTn - Round 2a (ITS2-Specific) (`blast_round2.py`)
+## Step 6: BLASTn - Round 2a (ITS2-Specific) (`itsfun-blast2`)
 Searches validated contigs against the UCHIME ITS2 reference database for region-specific validation. This step uses `seqkit grep` to extract only the contigs that passed Round 1 validation before running BLAST.
 
 **Process:**
@@ -285,7 +331,7 @@ Searches validated contigs against the UCHIME ITS2 reference database for region
 
 **Input:**
 - Assembly scaffolds from Step 4 (`*.spades.out/scaffolds.fasta`)
-- BLAST Round 1 TSV results from Step 5/6
+- BLAST Round 1 TSV results from Steps 5/5.5
 - UCHIME ITS2 reference database
 - Tracking sheet with sample IDs
 
@@ -297,7 +343,7 @@ Searches validated contigs against the UCHIME ITS2 reference database for region
 
 ---
 
-## Step 6.5: BLASTn Parsing & Validation (ITS2) (`blast_output_parser.py`)
+## Step 6.5: BLASTn Parsing & Validation (ITS2) (`itsfun-blast-parse`)
 Parses ITS2-specific BLAST results and applies multi-tier taxonomic validation with cascading fallbacks from family to genus to species level.
 
 **Multi-Tier Taxonomy Matching Logic:**
@@ -318,7 +364,7 @@ When expected family is empty (fallback to genus):
 3. **>1 genus matches** → Check species level (same logic as above)
 
 **Input:**
-- ITS2 BLAST TSV files from Step 7
+- ITS2 BLAST TSV files from Step 6
 - Taxonomy CSV with expected taxonomic assignments
 - Assembly directory for contig extraction
 
@@ -338,12 +384,12 @@ When expected family is empty (fallback to genus):
 
 ---
 
-## Step 7: BLASTn - Round 2b (ITS1-Specific) (`blast_round2.py`)
-Parallel analysis searching against UCHIME ITS1 reference database. Uses the same workflow as Step 7 but with the ITS1-specific database.
+## Step 7: BLASTn - Round 2b (ITS1-Specific) (`itsfun-blast2`)
+Parallel analysis searching against UCHIME ITS1 reference database. Uses the same workflow as Step 6 but with the ITS1-specific database.
 
 **Input:**
 - Assembly scaffolds from Step 4
-- BLAST Round 1 TSV results from Step 5/6
+- BLAST Round 1 TSV results from Steps 5/5.5
 - UCHIME ITS1 reference database
 - Tracking sheet with sample IDs
 
@@ -354,21 +400,21 @@ Parallel analysis searching against UCHIME ITS1 reference database. Uses the sam
 
 ---
 
-## Step 7.5: BLASTn Parsing & Validation (ITS1) (`blast_output_parser.py`)
-Parses ITS1-specific BLAST results using the same multi-tier taxonomic validation as Step 8.
+## Step 7.5: BLASTn Parsing & Validation (ITS1) (`itsfun-blast-parse`)
+Parses ITS1-specific BLAST results using the same multi-tier taxonomic validation as Step 6.5.
 
 **Input:**
-- ITS1 BLAST TSV files from Step 9
+- ITS1 BLAST TSV files from Step 7
 - Taxonomy CSV with expected taxonomic assignments
 - Assembly directory for contig extraction
 
 **Output:**
-- `taxonomy_validation_summary.csv` - ITS1 validation results (same format as Step 8)
+- `taxonomy_validation_summary.csv` - ITS1 validation results (same format as Step 6.5)
 - `{sample}_parsed_contig.fasta` - extracted contig sequences for passing samples
 
 ---
 
-## Step 8: ITS Primer Binding & Extraction (`its_primer_binding.py`)
+## Step 8: ITS Primer Binding & Extraction (`itsfun-extract`)
 Identifies primer binding sites and extracts ITS sequences from validated contigs using `seqkit amplicon`. Uses standard ITS primers from White et al. (1990) by default, with support for custom primer sets.
  
 **Default Primers ([White et al. 1990](https://www.sciencedirect.com/science/chapter/edited-volume/abs/pii/B9780123721808500421?via%3Dihub)):**
@@ -393,7 +439,7 @@ Identifies primer binding sites and extracts ITS sequences from validated contig
 4. Generates extraction summary statistics
 
 **Input:**
-- Validated contig FASTAs from Steps 8/10 (`*_parsed_contig.fasta`)
+- Validated contig FASTAs from Steps 6.5/7.5 (`*_parsed_contig.fasta`)
 - Tracking sheet with sample IDs
 - Optional: Custom primers TSV and regions TSV
 **Output:**
@@ -425,7 +471,7 @@ MyRegion	FWD1	REV1
 ---
  
 
-## Step 9: Summary Metrics Aggregation (`its_a_summary_compiler.py`)
+## Step 9: Summary Metrics Aggregation (`itsfun-summary`)
 Compiles comprehensive summary statistics across all pipeline steps, performs contig analysis to resolve ITS1/ITS2 results, and prepares final output FASTAs for submission.
 
 **Process:**
@@ -471,9 +517,6 @@ SAMPLE002	Genus_species_voucher456
 ```
 
 ---
-
-## Workflow
-<img width="1278" height="1222" alt="image" src="https://github.com/user-attachments/assets/44ada96d-73f3-4545-8290-14239e7d2b3e" />
 
 ## Output Directory Structure
 ```
@@ -544,44 +587,46 @@ output_base/
         └── {sample}_manual_verification_needed.fasta
 ```
 
+## Dependencies
+All of the dependencies below are installed by the conda environment (`its-fun-2-map.yaml`) and the `its-fun-2-map` package - see [Installation and quick start](#installation-and-quick-start). They are listed here for reference.
 
-## Configuration
-### Default Parameters
+### Languages
+- r-base 4.5.2 - keep on 4.5.x; rpy2's conda build encodes the R series, so bumping R alone leaves rpy2 with no matching build
+- python 3.14 - minimum supported is 3.12, which `seqpy-tools` requires
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `MIN_LENGTH` | 100 bp | Minimum sequence length for BLAST filtering |
-| `MIN_PIDENT` | 85% | Minimum percent identity for BLAST hits |
-| `EVALUE_CUTOFF` | 1e-5 | BLAST e-value threshold |
-| `NUMBER_REFS` | 40 | Number of reference sequences to retrieve |
-| `TAX_RANK` | genus | Taxonomic rank for reference retrieval |
+### Conda packages
+| Package  | Version              |
+|----------|----------------------|
+| fastp    | 1.0.1                |
+| seqkit   | 2.12.0               |
+| bwa      | 0.7.19               |
+| samtools | 1.24                 |
+| bbmap    | 40.02                |
+| openjdk  | 21                   |
+| spades   | 4.2.0                |
+| blast    | 2.17.0               |
 
-### Tracking Sheet Format
-The pipeline accepts CSV or XLSX tracking sheets with the following columns:
+BBMap supplies `repair.sh`, which `itsfun-map` uses to resynchronise mapped read
+pairs in Step 3; `openjdk` is its Java runtime. `htslib` is no longer listed - it is
+pulled in automatically as a library dependency of `samtools`.
 
-**Required columns:**
-- Sample ID column (configurable via `--column_name` or `--id_header`)
-- Taxid column (for UNITEd step, configurable via `--taxid_header`)
+### Python packages (not built-in)
+| Package   | Version              |
+|-----------|----------------------|
+| pandas    | 2.3.3                |
+| numpy     | 2.4.1                |
+| biopython | 1.86                 |
+| rpy2      | 3.6.4                |
+| scipy     | 1.18.0               |
+| openpyxl  | 3.1.5                |
+| pgzip     | 0.4.0                |
 
-**Optional columns (for fastp_module.py):**
-- `forward` / `fwd` - path to forward reads
-- `reverse` / `rev` - path to reverse reads
+### R packages
+- [jsonlite](https://cran.r-project.org/web/packages/jsonlite/index.html) 2.0.0 - used by `parse_fastp_json.R`; `its_decision_making.R` needs only base R
 
-If forward/reverse columns are present, file paths are read directly from the tracking sheet. Otherwise, files are searched for in the input directory using sample IDs.
-
-**For taxonomy validation (blast parsers):**
-- `Kingdom`, `Phylum`, `Class`, `Order`, `Family`, `Genus`, `Species` - taxonomic hierarchy columns
-
-If your spreadsheet doesn't contain taxonomic hierarchy columns, you can use the helper script `pull_ncbi_lineage.py`. This script will take any spreadsheet (both CSV and XLSX allowed) and queries all taxonomic IDs within in using NCBI Entrez. It then appends the taxonomic hierarchy columns to the spreadsheet. Outputs a log file and a CSV to your working directory for downstream use. 
-
-If using the pipeline shell script, this can be opted in by changing "need_lineage" to "YES" in [Advanced Usage: Configurable paramaters](https://github.com/museomics/its-fun-2-map/blob/main/tutorial.md). 
-
-```
-## Configurable parameters
-# UNITEd.py parameters
-need_lineage="NO"     #change to "YES" to use pull_ncbi_lineage.py
-
-```
+### Custom tool packages
+ - `its_fun_2_map.its_fun_tools` - shared helpers, installed as part of the `its-fun-2-map` package. No `PYTHONPATH` fiddling and no need to run from the repository directory.
+ - [seqpy-tools](https://github.com/museomics/seqpy_tools) 0.1.0 ([available via pip](https://pypi.org/project/seqpy-tools/)) - imported by every module in the pipeline
 
 ## Authors
 **M. Kamouyiaros & D. Parsons** @ the Natural History Museum, London (NHMUK)

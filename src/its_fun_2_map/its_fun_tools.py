@@ -7,6 +7,7 @@ import pandas as pd
 import pathlib
 import shutil
 import logging
+import re
 import time
 import random
 import urllib.error
@@ -32,6 +33,15 @@ def blast_task(scaff_path, database_file, output_dir, name_id, prefix=None, eval
     ], check=True)
 
 
+
+
+def normalise_taxon_name(name):
+    """
+    Normalise a taxon name for comparison. NCBI writes species with a space
+    ("Cladonia uncialis") while UNITE uses an underscore ("Cladonia_uncialis"),
+    so runs of underscores/whitespace become one space and case is ignored.
+    """
+    return re.sub(r"[_\s]+", " ", str(name)).strip().lower()
 
 
 def log_and_print(message, level='info', logger=None):

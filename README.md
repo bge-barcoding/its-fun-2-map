@@ -9,7 +9,8 @@ A pipeline for processing fungal genome skims from museum specimens. Includes qu
 4. [Pipeline Overview](#pipeline-overview)
 5. [Output Directory Structure](#output-directory-structure)
 6. [Dependencies](#dependencies)
-7. [Authors](#authors)
+7. [Benchmarking](#bechmarking)
+8. [Authors & Citation](#authors-and-citation)
 
 ## Installation and quick start
 Everything the pipeline needs (tools, R, Python and their packages) are installed by the conda environment in `its-fun-2-map.yaml`. The only things you need to fetch yourself are the reference databases.
@@ -628,5 +629,10 @@ pulled in automatically as a library dependency of `samtools`.
  - `its_fun_2_map.its_fun_tools` - shared helpers, installed as part of the `its-fun-2-map` package. No `PYTHONPATH` fiddling and no need to run from the repository directory.
  - [seqpy-tools](https://github.com/museomics/seqpy_tools) 0.1.0 ([available via pip](https://pypi.org/project/seqpy-tools/)) - imported by every module in the pipeline
 
-## Authors
+## Benchmarking
+ITS-Fun-2-Map ran end-to-end on 108 low-coverage genome skims generated from fungarium specimens (collected between 1985-2018 and stored at the Royal Botanic Garden, Edinburgh) in 136.15 minutes on a SLURM-based HPC, with 150G of memory and 24 CPUs allocated.
+
+## Authors and Citation
 **M. Kamouyiaros & D. Parsons** @ the Natural History Museum, London (NHMUK)
+
+ITS-Fun-2-Map is published in [TBD] - please cite the paper if you use our pipeline in your work. Thanks!

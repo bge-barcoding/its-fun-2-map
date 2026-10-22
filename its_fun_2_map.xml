@@ -34,31 +34,31 @@ mkdir -p reads db
     out/06a_blast_parsed2a-ITS2
     out/07_blast_round2b-ITS1
     out/07a_blast_parsed2b-ITS1
-    out/08_its_primer_extraction &&
+    out/08_its_primer_extraction
 
 ## Stage reads under neutral names; the tracking sheet carries the mapping
 ## from sample ID to file, so filenames never need to match IDs.
 #for $i, $pair in enumerate($reads):
     #set $ext = 'fastq.gz' if $pair.forward.ext.endswith('.gz') else 'fastq'
-    ln -s '$pair.forward' 'reads/r${i}_R1.${ext}' &&
-    ln -s '$pair.reverse' 'reads/r${i}_R2.${ext}' &&
+    ln -s '$pair.forward' 'reads/r${i}_R1.${ext}'
+    ln -s '$pair.reverse' 'reads/r${i}_R2.${ext}'
 #end for
 
 ## Reference databases: symlink into a writable directory so makeblastdb
 ## can write its index files next to the FASTA.
-ln -s '$databases.unite_full' db/unite_full.fasta &&
-ln -s '$databases.unite_general' db/unite_general.fasta &&
-ln -s '$databases.uchime_its2' db/uchime_its2.fasta &&
-ln -s '$databases.uchime_its1' db/uchime_its1.fasta &&
+ln -s '$databases.unite_full' db/unite_full.fasta
+ln -s '$databases.unite_general' db/unite_general.fasta
+ln -s '$databases.uchime_its2' db/uchime_its2.fasta
+ln -s '$databases.uchime_its1' db/uchime_its1.fasta
 
 ## Build a clean CSV tracking sheet with forward/reverse paths injected.
-python '$prepare_sheet'
+python '$__tool_directory__/prepare_sheet.py'
     '$tracking_sheet'
     '$tracking_sheet.ext'
     $sheet_index
     '$column_name'
     '$pairs_tsv'
-    tracking.csv &&
+    tracking.csv
 
 #if $taxonomy.source == 'ncbi':
     itsfun-lineage
@@ -66,8 +66,8 @@ python '$prepare_sheet'
         --output_csv tracking_lineage.csv
         --email '$__user_email__'
         --taxcolumn '$taxid_column'
-        --log_file out/00_logs/pull_ncbi_lineage.log &&
-    test -s tracking_lineage.csv &&
+        --log_file out/00_logs/pull_ncbi_lineage.log
+    test -s tracking_lineage.csv
     #set $sheet = 'tracking_lineage.csv'
 #else:
     #set $sheet = 'tracking.csv'
@@ -81,7 +81,7 @@ itsfun-qc
     --threads \${GALAXY_SLOTS:-4}
     --fastp_threads 1
     --qualified_quality_phred $qc.qualified_quality_phred
-    --log_file out/00_logs/fastp.log &&
+    --log_file out/00_logs/fastp.log
 
 ## Step 2: pseudo-reference retrieval from UNITE
 itsfun-refs
@@ -102,7 +102,7 @@ itsfun-refs
         --all
     #end if
     --summary_csv UNITEd_summary.csv
-    --log_file out/00_logs/UNITEd.log &&
+    --log_file out/00_logs/UNITEd.log
 
 ## Step 3: read mapping and baiting
 itsfun-map
@@ -114,7 +114,7 @@ itsfun-map
     --column_name '$column_name'
     --threads \${GALAXY_SLOTS:-4}
     --bwa_threads 1
-    --log_file out/00_logs/mapping.log &&
+    --log_file out/00_logs/mapping.log
 
 ## Step 4: contig assembly
 itsfun-assemble
@@ -124,7 +124,7 @@ itsfun-assemble
     --threads \${GALAXY_SLOTS:-4}
     --k '$assembly.kmers'
     --summary_csv out/04_assemblies/assembly_summary.csv
-    --log_file out/00_logs/assembly.log &&
+    --log_file out/00_logs/assembly.log
 
 ## Step 5: BLASTn round 1 against the UNITE general release
 itsfun-blast1
@@ -136,7 +136,7 @@ itsfun-blast1
     --column_name '$column_name'
     --max_workers \${GALAXY_SLOTS:-4}
     --evalue $blast.evalue
-    --log_file out/00_logs/blast_round1.log &&
+    --log_file out/00_logs/blast_round1.log
 
 ## Step 5.5: round 1 parsing and taxonomic validation
 itsfun-blast1-parse
@@ -149,7 +149,7 @@ itsfun-blast1-parse
     --evalue_cutoff $blast.evalue_cutoff
     --assembly_dir out/04_assemblies
     $blast.allow_all
-    --log_file out/00_logs/parse_round1.log &&
+    --log_file out/00_logs/parse_round1.log
 
 ## Step 6: BLASTn round 2a against UCHIME ITS2
 itsfun-blast2
@@ -162,7 +162,7 @@ itsfun-blast2
     --column_name '$column_name'
     --max_workers \${GALAXY_SLOTS:-4}
     --evalue $blast.evalue
-    --log_file out/00_logs/blast_round2a.log &&
+    --log_file out/00_logs/blast_round2a.log
 
 ## Step 6.5: ITS2 parsing and validation
 itsfun-blast-parse
@@ -174,7 +174,7 @@ itsfun-blast-parse
     --assembly_dir out/04_assemblies
     --id_column '$column_name'
     --summary_csv out/06a_blast_parsed2a-ITS2/blast_parser_its2_summary.csv
-    --log_file out/00_logs/parse_round2a.log &&
+    --log_file out/00_logs/parse_round2a.log
 
 ## Step 7: BLASTn round 2b against UCHIME ITS1
 itsfun-blast2
@@ -187,7 +187,7 @@ itsfun-blast2
     --column_name '$column_name'
     --max_workers \${GALAXY_SLOTS:-4}
     --evalue $blast.evalue
-    --log_file out/00_logs/blast_round2b.log &&
+    --log_file out/00_logs/blast_round2b.log
 
 ## Step 7.5: ITS1 parsing and validation
 itsfun-blast-parse
@@ -199,7 +199,7 @@ itsfun-blast-parse
     --assembly_dir out/04_assemblies
     --id_column '$column_name'
     --summary_csv out/07a_blast_parsed2b-ITS1/blast_parser_its1_summary.csv
-    --log_file out/00_logs/parse_round2b.log &&
+    --log_file out/00_logs/parse_round2b.log
 
 ## Step 8: primer binding and ITS extraction
 itsfun-extract
@@ -211,7 +211,7 @@ itsfun-extract
         --primers_tsv '$primers.primers_tsv'
         --regions_tsv '$primers.regions_tsv'
     #end if
-    --log_file out/00_logs/primer_binding.log &&
+    --log_file out/00_logs/primer_binding.log
 
 ## Step 9: summary, decision making and final FASTAs
 itsfun-summary out
@@ -223,13 +223,13 @@ itsfun-summary out
     #end if
 
 #if $extra_outputs and 'summaries' in $extra_outputs:
-    && mkdir -p step_summaries
-    && find out -name '*_summary.csv' -not -path 'out/final_results_dir/*' -exec cp {} step_summaries/ \;
-    && if [ -f out/08_its_primer_extraction/summary_report.txt ]; then cp out/08_its_primer_extraction/summary_report.txt step_summaries/; fi
+mkdir -p step_summaries
+find out -name '*_summary.csv' -not -path 'out/final_results_dir/*' -exec cp {} step_summaries/ \;
+if [ -f out/08_its_primer_extraction/summary_report.txt ]; then cp out/08_its_primer_extraction/summary_report.txt step_summaries/; fi
 #end if
 #if $extra_outputs and 'scaffolds' in $extra_outputs:
-    && mkdir -p scaffolds_out
-    && for d in out/04_assemblies/*.spades.out; do
+mkdir -p scaffolds_out
+for d in out/04_assemblies/*.spades.out; do
            if [ -s "\$d/scaffolds.fasta" ]; then cp "\$d/scaffolds.fasta" "scaffolds_out/\$(basename "\$d" .spades.out).fasta"; fi;
        done
 #end if
@@ -239,75 +239,6 @@ itsfun-summary out
 #set $ext = 'fastq.gz' if $pair.forward.ext.endswith('.gz') else 'fastq'
 ${pair.name}	reads/r${i}_R1.${ext}	reads/r${i}_R2.${ext}
 #end for
-]]></configfile>
-        <configfile name="prepare_sheet"><![CDATA[
-import os
-import re
-import sys
-
-import pandas as pd
-
-sheet_path, sheet_ext, sheet_index, id_col, pairs_path, out_path = sys.argv[1:7]
-
-if sheet_ext == 'xlsx':
-    df = pd.read_excel(sheet_path, sheet_name=int(sheet_index), dtype=str)
-elif sheet_ext == 'csv':
-    df = pd.read_csv(sheet_path, dtype=str)
-else:
-    df = pd.read_csv(sheet_path, sep='\t', dtype=str)
-
-df.columns = [str(c).strip() for c in df.columns]
-if id_col not in df.columns:
-    sys.exit('ERROR: ID column "%s" not found in the tracking sheet. Columns present: %s'
-             % (id_col, ', '.join(df.columns)))
-
-# Paths in a user's sheet point at their own filesystem, never at Galaxy's.
-stale = [c for c in df.columns if c.lower() in ('forward', 'fwd', 'reverse', 'rev')]
-if stale:
-    df = df.drop(columns=stale)
-    sys.stderr.write('Ignoring file path columns from the tracking sheet: %s\n' % ', '.join(stale))
-
-df[id_col] = df[id_col].astype(str).str.strip()
-df = df[df[id_col].ne('') & df[id_col].ne('nan')]
-
-pairs = pd.read_csv(pairs_path, sep='\t', header=None, dtype=str,
-                    names=['sample', 'forward', 'reverse'], keep_default_na=False)
-pairs['sample'] = pairs['sample'].str.strip()
-
-bad = [s for s in pairs['sample'] if not re.fullmatch(r'[A-Za-z0-9._-]+', s)]
-if bad:
-    sys.exit('ERROR: these collection element identifiers contain characters other than '
-             'letters, digits, dot, underscore or hyphen: %s' % ', '.join(bad))
-
-dupes = sorted(set(df[id_col][df[id_col].duplicated()]))
-if dupes:
-    sys.exit('ERROR: duplicate sample IDs in the tracking sheet: %s' % ', '.join(dupes))
-
-missing = sorted(set(pairs['sample']) - set(df[id_col]))
-if missing:
-    sys.exit('ERROR: these read pairs have no row in the tracking sheet (the collection element '
-             'identifier must equal the value in the "%s" column): %s' % (id_col, ', '.join(missing)))
-
-unused = sorted(set(df[id_col]) - set(pairs['sample']))
-if unused:
-    sys.stderr.write('Skipping %d tracking sheet rows with no matching reads: %s\n'
-                     % (len(unused), ', '.join(unused)))
-df = df[df[id_col].isin(set(pairs['sample']))].copy()
-
-# Later pipeline steps match files to samples by substring, so an ID that
-# occurs inside another ID would pick up the wrong sample's files.
-ids = sorted(df[id_col])
-clashes = ['%s / %s' % (a, b) for a in ids for b in ids if a != b and a in b]
-if clashes:
-    sys.exit('ERROR: some sample IDs occur inside other IDs, which the pipeline cannot keep apart: '
-             '%s. Rename the samples, for example by zero-padding (S01 rather than S1).'
-             % '; '.join(clashes))
-
-paths = pairs.set_index('sample')
-df['forward'] = [os.path.abspath(paths.at[s, 'forward']) for s in df[id_col]]
-df['reverse'] = [os.path.abspath(paths.at[s, 'reverse']) for s in df[id_col]]
-df.to_csv(out_path, index=False)
-sys.stderr.write('Tracking sheet prepared for %d samples\n' % len(df))
 ]]></configfile>
     </configfiles>
     <inputs>

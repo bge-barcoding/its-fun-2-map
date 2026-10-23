@@ -2,6 +2,9 @@
 
 A pipeline for processing fungal genome skims from museum specimens. Includes quality control, reference mapping (as a read-baiting step), assembly, BLAST taxonomic assignment, primer-based ITS region extraction, and validation.
 
+![PyPI Version](https://img.shields.io/pypi/v/its-fun-2-map)
+
+
 ## Contents
 1. [Installation and quick start](#installation-and-quick-start)
 2. [Workflow](#workflow)
@@ -9,7 +12,7 @@ A pipeline for processing fungal genome skims from museum specimens. Includes qu
 4. [Pipeline Overview](#pipeline-overview)
 5. [Output Directory Structure](#output-directory-structure)
 6. [Dependencies](#dependencies)
-7. [Benchmarking](#bechmarking)
+7. [Benchmarking](#benchmarking)
 8. [Authors & Citation](#authors-and-citation)
 
 ## Installation and quick start

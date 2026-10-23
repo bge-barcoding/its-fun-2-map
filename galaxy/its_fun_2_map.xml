@@ -376,7 +376,7 @@ ${pair.name}	reads/r${i}_R1.${ext}	reads/r${i}_R2.${ext}
     </outputs>
     <tests>
         <!-- Needs test-data built from one or two subsampled specimens and cut-down UNITE files; see the notes accompanying this wrapper. -->
-        <test expect_num_outputs="4">
+        <test expect_num_outputs="3">
             <param name="reads">
                 <collection type="list:paired">
                     <element name="SPEC01">

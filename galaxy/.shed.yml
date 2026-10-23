@@ -6,7 +6,7 @@ long_description: |
   specimens: QC, UNITE pseudo-reference baiting, SPAdes assembly, two rounds of
   BLAST-based taxonomic validation, primer-based ITS extraction and a final
   per-specimen decision with submission-ready FASTAs.
-homepage_url: https://github.com/bge-barcoding/its-fun-2-map
+homepage_url: https://github.com/museomics/its-fun-2-map
 remote_repository_url: https://github.com/bge-barcoding/its-fun-2-map/tree/main/galaxy
 type: unrestricted
 categories:

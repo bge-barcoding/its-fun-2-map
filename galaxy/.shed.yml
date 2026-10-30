@@ -1,5 +1,7 @@
 name: its_fun_2_map
-owner: rvosa
+# Tool Shed username that owns the repository. The account must exist before
+# the first `planemo shed_create`; change if registered under another name.
+owner: bge-barcoding
 description: Extract and validate fungal ITS barcodes from museum specimen genome skims
 long_description: |
   End-to-end pipeline for low-coverage genome skims of fungarium and herbarium
@@ -12,3 +14,10 @@ type: unrestricted
 categories:
   - Sequence Analysis
   - Assembly
+
+# Only these files are uploaded to the Tool Shed; docs/ and anything else are left out
+include:
+  - its_fun_2_map.xml
+  - macros.xml
+  - prepare_sheet.py
+  - test-data/*

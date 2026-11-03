@@ -1,0 +1,29 @@
+<macros>
+    <token name="@TOOL_VERSION@">1.0.0</token>
+    <token name="@VERSION_SUFFIX@">0</token>
+    <token name="@PROFILE@">23.0</token>
+
+    <xml name="requirements">
+        <requirements>
+            <requirement type="package" version="@TOOL_VERSION@">its-fun-2-map</requirement>
+        </requirements>
+    </xml>
+
+    <xml name="citations">
+        <citations>
+            <citation type="bibtex">@misc{its_fun_2_map,
+    author = {Kamouyiaros, M. and Parsons, D.},
+    title = {{ITS-FUN-2-MAP}: extraction and validation of fungal {ITS} barcodes from museum specimen genome skims},
+    publisher = {GitHub},
+    year = {2026},
+    url = {https://github.com/museomics/its-fun-2-map}
+}</citation>
+            <citation type="doi">10.1093/bioinformatics/bty560</citation>
+            <citation type="doi">10.1093/bioinformatics/btp324</citation>
+            <citation type="doi">10.1089/cmb.2012.0021</citation>
+            <citation type="doi">10.1186/1471-2105-10-421</citation>
+            <citation type="doi">10.1371/journal.pone.0163962</citation>
+            <citation type="doi">10.1093/nar/gkad1039</citation>
+        </citations>
+    </xml>
+</macros>

@@ -1,0 +1,2 @@
+ID,forward,reverse,taxid,type_status,kingdom,phylum,class,order,family,genus,species
+test1,/galaxy/test-data/test1_R1.fastq.gz,/galaxy/test-data/test1_R2.fastq.gz,133178,not collected,,Ascomycota,Lecanoromycetes,Pertusariales,Pertusariaceae,Pertusaria,Pertusaria pertusa

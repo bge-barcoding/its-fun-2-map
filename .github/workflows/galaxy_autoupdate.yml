@@ -1,0 +1,78 @@
+name: Galaxy wrapper autoupdate
+
+# Polls Bioconda for a newer its-fun-2-map release and opens a PR bumping the
+# Galaxy wrapper to it. The PR is merged by hand so the wrapper can be checked
+# against any new pipeline options; galaxy_tag.yml then tags it.
+on:
+  schedule:
+    - cron: "17 6 * * *"   # daily, 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  autoupdate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Compare Bioconda and wrapper versions
+        id: versions
+        run: |
+          if ! response=$(curl -sf https://api.anaconda.org/package/bioconda/its-fun-2-map); then
+            echo "::notice::its-fun-2-map is not on Bioconda yet; nothing to update"
+            exit 0
+          fi
+          latest=$(echo "$response" | jq -r .latest_version)
+          if [ -z "$latest" ] || [ "$latest" = "null" ]; then
+            echo "::error::Could not read the latest its-fun-2-map version from Bioconda"
+            exit 1
+          fi
+          current=$(tr -d '\r' < galaxy/macros.xml | sed -n 's:.*<token name="@TOOL_VERSION@">\(.*\)</token>.*:\1:p')
+          echo "Bioconda: $latest, wrapper: $current"
+          newest=$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -n 1)
+          if [ "$latest" != "$current" ] && [ "$newest" = "$latest" ]; then
+            echo "update=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+
+      - name: Bump macros.xml
+        if: steps.versions.outputs.update == 'true'
+        env:
+          LATEST: ${{ steps.versions.outputs.latest }}
+        run: |
+          sed -i \
+            -e "s:<token name=\"@TOOL_VERSION@\">[^<]*</token>:<token name=\"@TOOL_VERSION@\">${LATEST}</token>:" \
+            -e "s:<token name=\"@VERSION_SUFFIX@\">[^<]*</token>:<token name=\"@VERSION_SUFFIX@\">0</token>:" \
+            galaxy/macros.xml
+          git diff
+
+      # A token other than GITHUB_TOKEN is needed so that pushing the PR branch
+      # triggers toolshed_deploy.yml (lint and test); pushes made with
+      # GITHUB_TOKEN do not start other workflows.
+      - name: Open pull request
+        if: steps.versions.outputs.update == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GALAXY_AUTOUPDATE_TOKEN }}
+          base: main
+          branch: galaxy-autoupdate
+          delete-branch: true
+          add-paths: galaxy/macros.xml
+          commit-message: "galaxy: bump its-fun-2-map to ${{ steps.versions.outputs.latest }}"
+          title: "galaxy: bump its-fun-2-map ${{ steps.versions.outputs.current }} -> ${{ steps.versions.outputs.latest }}"
+          body: |
+            Bioconda has published its-fun-2-map ${{ steps.versions.outputs.latest }}.
+
+            This PR sets `@TOOL_VERSION@` to ${{ steps.versions.outputs.latest }} and resets
+            `@VERSION_SUFFIX@` to 0. Merging it tags
+            `galaxy-${{ steps.versions.outputs.latest }}+galaxy0`, which uploads to the Tool Shed.
+
+            Before merging:
+            - [ ] Lint and planemo tests pass
+            - [ ] New or changed pipeline options are reflected in `its_fun_2_map.xml`
+            - [ ] Test assertions still match the new outputs

@@ -1,0 +1,125 @@
+name: Deploy to Galaxy Tool Shed
+
+# Lints and tests the Galaxy wrapper on every push that touches galaxy/, and
+# uploads it to the Tool Shed for galaxy-* tags only (pushed by galaxy_tag.yml
+# or by hand, e.g. galaxy-1.0.0+galaxy0).
+on:
+  push:
+    branches:
+      - "**"
+    # GitHub ignores path filters for tag pushes, so tags always run
+    paths:
+      - "galaxy/**"
+      - ".github/workflows/toolshed_deploy.yml"
+    tags:
+      # Galaxy wrapper releases only. Package tags (v*) belong to the upstream
+      # PyPI/Bioconda releases and must not upload to the Tool Shed.
+      - "galaxy-*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install planemo
+        run: pip install planemo
+
+      - name: Lint tool XML
+        run: planemo lint galaxy/its_fun_2_map.xml
+
+      # --fail_level error: shed_lint warns that remote_repository_url does not
+      # end with the last two parts of the local path. That check assumes the
+      # tools-iuc layout (tools/<name>); our .../tree/main/galaxy URL is correct.
+      - name: Lint Tool Shed repository
+        run: planemo shed_lint --tools --fail_level error galaxy/
+
+  test:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install planemo
+        run: pip install planemo
+
+      # Installs the its-fun-2-map Bioconda package named in macros.xml, so
+      # this fails until that version is on Bioconda. Step 2 of the pipeline
+      # queries NCBI Entrez, which GitHub-hosted runners can reach.
+      - name: Run tool tests
+        run: |
+          planemo test \
+            --conda_auto_install \
+            --conda_auto_init \
+            --test_output tool_test_output.html \
+            --test_output_json tool_test_output.json \
+            galaxy/its_fun_2_map.xml
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: planemo-test-report
+          path: |
+            tool_test_output.html
+            tool_test_output.json
+          if-no-files-found: ignore
+
+  shed_upload:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/galaxy-')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches macros.xml version
+        run: |
+          tool_version=$(tr -d '\r' < galaxy/macros.xml | sed -n 's:.*<token name="@TOOL_VERSION@">\(.*\)</token>.*:\1:p')
+          suffix=$(tr -d '\r' < galaxy/macros.xml | sed -n 's:.*<token name="@VERSION_SUFFIX@">\(.*\)</token>.*:\1:p')
+          expected="galaxy-${tool_version}+galaxy${suffix}"
+          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match macros.xml ($expected)"
+            exit 1
+          fi
+
+      - name: Check the Tool Shed API key is set
+        env:
+          TOOLSHED_API_KEY: ${{ secrets.TOOLSHED_API_KEY }}
+        run: |
+          if [ -z "$TOOLSHED_API_KEY" ]; then
+            echo "::error::The TOOLSHED_API_KEY secret is not set for this repository"
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install planemo
+        run: pip install planemo
+
+      # The Tool Shed repository must already exist (planemo shed_create
+      # --skip_upload, run once by hand; see galaxy/docs/README.md).
+      - name: Upload to Tool Shed
+        env:
+          TOOLSHED_API_KEY: ${{ secrets.TOOLSHED_API_KEY }}
+        run: |
+          planemo shed_upload \
+            --shed_target toolshed \
+            --shed_key "$TOOLSHED_API_KEY" \
+            galaxy/
